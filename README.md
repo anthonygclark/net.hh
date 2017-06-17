@@ -5,7 +5,7 @@ An attempt to simplify the Berkley Sockets API
 * Removes boilerplate
 * APIs return objects where applicable (instead of half-filled socket structures and error codes)
 * Exceptions.
-* Header only. Inclusion of `net_buffer.hh` is optional via `USE_NET_BUFFER` define.
+* Header only. Inclusion of `net_buffer.hh` is optional via `USE_NET_BUFFER` macro.
 
 ### Example
 
