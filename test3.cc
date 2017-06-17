@@ -10,5 +10,5 @@ int main()
     net::IPv6_Socket s{SOCK_DGRAM};
     net::Address a{AF_INET6, "::1", 9999};
 
-    s.sendto(*b.get(), a);
+    s.sendto(*b.get(), a, MSG_DONTROUTE);
 }

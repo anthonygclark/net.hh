@@ -75,12 +75,6 @@ namespace net
 
         } /* end namespace sizes */
 
-        namespace detail
-        {
-            struct in6_addr any_ipv6 = IN6ADDR_ANY_INIT;
-
-        } /* end namespace detail */
-
         /**
          * @brief Represents a socket address
          * @details Some fields are only used with certain socket functions, ie - send.
@@ -103,7 +97,7 @@ namespace net
             /**< Represents ANY IPv4 address, aka wildcard */
             constexpr static const char * ANY_4 = "0.0.0.0";
             /**< Represents ANY IPv6 address, aka wildcard */
-            constexpr static const auto & ANY_6 = detail::any_ipv6;
+            constexpr static const char * ANY_6 = ":::";
 
             /**
              * @brief Initializing constructor
@@ -136,11 +130,11 @@ namespace net
                 {
                 case AF_INET:
                     {
-                        auto * sockaddr_in_ = cast_to_sockaddr_in();
-                        sockaddr_in_->sin_port = htons(m_port);
-                        sockaddr_in_->sin_family = AF_INET;
+                        auto * in = cast_to_sockaddr_in();
+                        in->sin_port = htons(m_port);
+                        in->sin_family = AF_INET;
 
-                        auto r = ::inet_pton(family, m_ip.c_str(), &(sockaddr_in_->sin_addr.s_addr));
+                        auto r = ::inet_pton(family, m_ip.c_str(), &(in->sin_addr.s_addr));
 
                         if (r == 0)
                             throw error::make_syserr(EINVAL, "Could not parse IP address");
@@ -155,13 +149,18 @@ namespace net
                         in->sin6_port = htons(m_port);
                         in->sin6_family = AF_INET6;
 
-                        auto r = ::inet_pton(family, m_ip.c_str(), &(in->sin6_addr.s6_addr));
+                        if (m_ip == ANY_6)
+                        {
+                            in->sin6_addr = in6addr_any;
+                        }
+                        else {
+                            auto r = ::inet_pton(family, m_ip.c_str(), &(in->sin6_addr.s6_addr));
 
-                        if (r == 0)
-                            throw error::make_syserr(EINVAL, "Could not parse IP address");
-                        else if (r == -1)
-                            throw error::make_syserr(errno, "inet_pton");
-
+                            if (r == 0)
+                                throw error::make_syserr(EINVAL, "Could not parse IP address");
+                            else if (r == -1)
+                                throw error::make_syserr(errno, "inet_pton");
+                        }
                         break;
                     }
                 default:
