@@ -16,14 +16,14 @@ An attempt to simplify the Berkley Sockets API
 int main()
 {
     /* UDP Socket which will interact with IPv4 address */
-    net::IPv4_Socket sock4 {SOCK_DGRAM};
+    net::ipv4::socket sock4 {SOCK_DGRAM};
     /* TCP Socket which will interact with IPv6 address */
-    net::IPv6_Socket sock6 {SOCK_STREAM};
+    net::ipv6::socket sock6 {SOCK_STREAM};
 
     /* IPv4 wildcard address (0.0.0.0) */
-    net::Address addr4 {AF_INET, net::Address::ANY4, 9998};
+    net::ipv4::address addr4 {net::ipv4::address::ANY, 9998};
     /* IPv6 loopback */
-    net::Address addr6 {AF_INET6, "::1", 9999};
+    net::ipv6::address addr6 {"::1", 9999};
 
     /* Create some buffer of data (unique_ptr) and send
      * to the IPv4 address
@@ -36,7 +36,7 @@ int main()
     sock6.listen();
 
     /* Wait for a client...
-     * client.first == net::IPv6_Socket
+     * client.first == net::ipv6::socket
      * client.second == net::Address with AF_INET6
      */
     auto client = sock6.accept();
@@ -44,8 +44,7 @@ int main()
 ```
 
 ###  TODO
-
-* Maybe segregate `Address` and `IPvX_Socket` into `net::ipv4` and `net::ipv6` like boost. This would remove the `AF_INETX` arg to `Address`.
+* Fill out CRTP base classes (socket, address)
 * Raw sockets, DCCP, Multicast, Broadcast, TUN, TAP
 * IP and UDP header construction.
 * Linux-only optional header with `netlink` sockets and `netfilter` bindings
