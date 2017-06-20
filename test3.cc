@@ -7,8 +7,8 @@ int main()
 {
     auto b = net::make_buffer<char>(188);
 
-    net::IPv6_Socket s{SOCK_DGRAM};
-    net::Address a{AF_INET6, "::1", 9999};
+    net::ipv6::socket s{SOCK_DGRAM};
+    net::ipv6::address a{"::1", 9999};
 
     s.sendto(*b.get(), a, MSG_DONTROUTE);
 }

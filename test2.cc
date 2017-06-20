@@ -11,8 +11,8 @@ int main()
     // flat buffer, notice no #define USE_NET_BUFFER
     net::Buffer b{static_mem, sizeof(static_mem)};
 
-    net::IPv4_Socket s{SOCK_DGRAM};
-    net::Address a{AF_INET, net::Address::ANY_4, 9999};
+    net::ipv4::socket s{SOCK_DGRAM};
+    net::ipv4::address a{net::ipv4::address::ANY, 9999};
 
     s.sendto(b, a);
 }

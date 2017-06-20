@@ -11,15 +11,14 @@ int main(void)
 
     std::thread udp_recvthread{[] {
         auto b = net::make_buffer<char>(188);
-        auto s = net::IPv4_Socket(SOCK_DGRAM);
-        auto a = net::Address(AF_INET, net::Address::ANY_4, 9999);
+        auto s = net::ipv4::socket(SOCK_DGRAM);
+        auto a = net::ipv4::address(net::ipv4::address::ANY, 9999);
         s.bind(a);
 
-        net::Address who{a.get_family()};
+        net::ipv4::address who{};
         s.recvfrom(*b.get(), &who);
 
         std::cout << "UDP1: Received " << b->get_size() << " bytes\n";
-
         std::cout << "UDP1: WHO ADDR: " << who.get_ip() << std::endl;
     }};
 
@@ -33,8 +32,8 @@ int main(void)
             reinterpret_cast<char*>(p->get_data_void())[i] = '1';
         }
 
-        auto s = net::IPv4_Socket(SOCK_DGRAM);
-        auto a = net::Address(AF_INET, net::Address::ANY_4, 9999);
+        auto s = net::ipv4::socket(SOCK_DGRAM);
+        auto a = net::ipv4::address(net::ipv4::address::ANY, 9999);
 
         std::cout << "UDP1: Sending " << b->get_size() << " bytes\n";
         s.sendto(*b.get(), a);
@@ -47,8 +46,8 @@ int main(void)
 
     std::thread tcp_recvthread{[] {
         auto b = net::make_buffer<char>(188);
-        auto s = net::IPv4_Socket{SOCK_STREAM};
-        auto a = net::Address{AF_INET, net::Address::ANY_4, 8888};
+        auto s = net::ipv4::socket{SOCK_STREAM};
+        auto a = net::ipv4::address{net::ipv4::address::ANY, 8888};
         s.bind(a);
         s.listen();
 
@@ -64,8 +63,8 @@ int main(void)
 
     std::thread tcp_sendthread{[] {
         auto b = net::make_buffer<char>(188);
-        auto s = net::IPv4_Socket{SOCK_STREAM};
-        auto a = net::Address{AF_INET, net::Address::ANY_4, 8888};
+        auto s = net::ipv4::socket{SOCK_STREAM};
+        auto a = net::ipv4::address{net::ipv4::address::ANY, 8888};
 
         s.connect(a);
         s.recv(*b.get());
@@ -84,11 +83,10 @@ int main(void)
         auto b3 = net::make_buffer<char>(188);
         auto b4 = net::make_buffer<char>(1000);
 
-        auto s = net::IPv4_Socket(SOCK_DGRAM);
-        auto a = net::Address(AF_INET, net::Address::ANY_4, 9999);
+        auto s = net::ipv4::socket(SOCK_DGRAM);
+        auto a = net::ipv4::address(net::ipv4::address::ANY, 9999);
 
-        net::Address who{a.get_family()};
-
+        net::ipv4::address who{};
         std::vector<net::Buffer *> buffers{b1.get(), b2.get(), b3.get(),b4.get()};
 
         s.bind(a);
@@ -114,8 +112,8 @@ int main(void)
         auto b3 = net::make_buffer<char>(188);
         auto b4 = net::make_buffer<char>(1000);
 
-        auto s = net::IPv4_Socket(SOCK_DGRAM);
-        auto a = net::Address(AF_INET, net::Address::ANY_4, 9999);
+        auto s = net::ipv4::socket(SOCK_DGRAM);
+        auto a = net::ipv4::address(net::ipv4::address::ANY, 9999);
 
         std::vector<net::Buffer const *> buffers{b1.get(), b2.get(), b3.get(),b4.get()};
         s.send_multiple(buffers, a);
