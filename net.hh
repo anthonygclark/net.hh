@@ -71,7 +71,7 @@ namespace net
 
         namespace sizes
         {
-            constexpr static int listen_backlog = 16;
+            /**< Largest address length used for size constraints. */
             constexpr static std::size_t max_address_length = INET6_ADDRSTRLEN;
 
         } /* end namespace sizes */
@@ -85,12 +85,10 @@ namespace net
             class socket
             {
             public:
-#if defined(__unix__) || defined(__APPLE__)
                 using handle_type = int;
                 using flags_type = int;
                 using domain_type = int;
                 using socket_type = int;
-#endif
 
             protected:
                 handle_type m_fd;
@@ -141,7 +139,9 @@ namespace net
                 /**
                  * @brief Sets IP Address
                  */
-                void set_ip(char const * ip, std::size_t size) { m_ip = std::move(std::string{ip, size}); }
+                void set_ip(char const * ip, std::size_t size) {
+                    m_ip = std::move(std::string{ip, size});
+                }
 
                 /**
                  * @brief Sets port
@@ -165,6 +165,28 @@ namespace net
 
         namespace ipv4
         {
+            namespace type_traits
+            {
+                template<typename T> struct is_ipv4_struct : std::false_type { };
+                template<> struct is_ipv4_struct<struct sockaddr> : std::true_type { };
+                template<> struct is_ipv4_struct<struct sockaddr_in> : std::true_type { };
+                template<> struct is_ipv4_struct<struct sockaddr_storage> : std::true_type { };
+
+            } /* end namespace type_traits */
+
+            /**< Alias/Contraint for limiting socket API structs without
+             * creating C++ base classes.
+             */
+            template<typename T,
+                        class = typename std::enable_if<
+                                            ipv4::type_traits::is_ipv4_struct<
+                                                    typename std::remove_cv<
+                                                        typename std::remove_pointer<T>::type
+                                                        >::type
+                                                    >::value
+                                            >::type>
+            using ipv4_struct = T;
+
             /**
              * @brief Represents an ipv4 socket address
              * @details Some fields are only used with certain socket functions, ie - send.
@@ -186,8 +208,7 @@ namespace net
                  * @details Used typically when syscalls fill in an address structure but need
                  *          the socket family as a hint.
                  */
-                address()
-                {
+                address() {
                     std::memset(&m_address, 0, sizeof(handle_type));
                 }
 
@@ -201,6 +222,7 @@ namespace net
                 {
                     m_ip = ip;
                     m_port = port;
+
                     std::memset(&m_address, 0, sizeof(handle_type));
 
                     auto * in = cast_to_sockaddr_in();
@@ -219,11 +241,14 @@ namespace net
                  * @brief constructor
                  * @param addr Pre-filled address
                  */
-                address(handle_type const * addr)
-                {
-                    assert(addr);
-                    from_ipv4_struct(addr, sizeof(handle_type));
-                }
+                template<typename T>
+                    address(ipv4_struct<T> && s)
+                    {
+                        static_assert(std::is_pointer<T>::value, "T must be a pointer");
+
+                        assert(s);
+                        from_ipv4_struct(s, sizeof(typename std::remove_pointer<T>::type));
+                    }
 
             private:
                 /**
@@ -308,10 +333,14 @@ namespace net
                     if (m_fd == -1)
                         throw error::make_syserr(errno, "socket");
 
-                    if (type != SOCK_DGRAM && type != SOCK_STREAM)
+                    if (type != SOCK_DGRAM && type != SOCK_STREAM && type != SOCK_RAW)
                         throw error::make_syserr(EINVAL, "Unknown socket type");
                 }
 
+                /**
+                 * @brief Accepts a client (requires connected-mode socket)
+                 * @return The client socket and the client address
+                 */
                 std::pair<std::unique_ptr<socket>, std::unique_ptr<ipv4::address>> accept()
                 {
                     struct sockaddr_in accepted;
@@ -326,17 +355,12 @@ namespace net
                     if (accepted_fd == -1)
                         throw error::make_syserr(errno, "accept");
 
-                    /* not make_unique here since we have a private ctor */
+                    /* not make_unique here since we're calling a private ctor */
                     auto accepted_socket =
                         std::unique_ptr<socket>(new socket{accepted_fd, m_type, m_flags});
 
-                    /* default construct */
-                    auto accepted_address = std::make_unique<ipv4::address>();
-
-                    /* then fill in from sockaddr_in. We have to do this since there is no way to
-                     * get a sockaddr_storage from this call
-                     */
-                    accepted_address->from_sockaddr_in(&accepted);
+                    /* construct from the out param of ::accept */
+                    auto accepted_address = std::make_unique<ipv4::address>(&accepted);
 
                     return std::make_pair(std::move(accepted_socket), std::move(accepted_address));
                 }
@@ -357,7 +381,7 @@ namespace net
                     }
                 }
 
-                void listen(int backlog = sizes::listen_backlog)
+                void listen(int backlog = 16) /* 16 is arbitrary */
                 {
                     if (::listen(m_fd, backlog) == -1)
                         throw error::make_syserr(errno, "listen");
@@ -476,6 +500,27 @@ namespace net
 
         namespace ipv6
         {
+            namespace type_traits
+            {
+                template<typename T> struct is_ipv6_struct : std::false_type { };
+                template<> struct is_ipv6_struct<struct sockaddr_in6> : std::true_type { };
+                template<> struct is_ipv6_struct<struct sockaddr_storage> : std::true_type { };
+
+            } /* end namespace type_traits */
+
+            /**< Alias/Contraint for limiting socket API structs without
+             * creating C++ base classes.
+             */
+            template<typename T,
+                        class = typename std::enable_if<
+                                            ipv6::type_traits::is_ipv6_struct<
+                                                    typename std::remove_cv<
+                                                        typename std::remove_pointer<T>::type
+                                                        >::type
+                                                    >::value
+                                            >::type>
+            using ipv6_struct = T;
+
             /**
              * @brief Represents an ipv6 socket address
              */
@@ -488,7 +533,9 @@ namespace net
                 int m_family = AF_INET6;
 
             public:
-                /**< Represents ANY IPv6 address, aka wildcard. TODO */
+                /**< Represents ANY IPv6 address, aka wildcard.
+                 * TODO this is a standin value for in6addr_any.
+                 */
                 constexpr static const char * ANY_6 = ":::";
 
                 /**
@@ -517,7 +564,6 @@ namespace net
                     in->sin6_port = htons(m_port);
                     in->sin6_family = m_family;
 
-                    /* TODO */
                     if (m_ip == ANY_6)
                     {
                         in->sin6_addr = in6addr_any;
@@ -536,11 +582,14 @@ namespace net
                  * @brief constructor
                  * @param addr Pre-filled address
                  */
-                address(handle_type const * addr)
-                {
-                    assert(addr);
-                    from_ipv6_struct(addr, sizeof(handle_type));
-                }
+                template<typename T>
+                    address(ipv6_struct<T> && s)
+                    {
+                        static_assert(std::is_pointer<T>::value, "T must be a pointer");
+
+                        assert(s);
+                        from_ipv6_struct(s, sizeof(typename std::remove_pointer<T>::type));
+                    }
 
             private:
                 /**
@@ -641,10 +690,8 @@ namespace net
                     auto accepted_socket =
                         std::unique_ptr<socket>(new socket{accepted_fd, m_type, m_flags});
 
-                    /* Default construct */
-                    auto accepted_address = std::make_unique<ipv6::address>();
-                    /* Then fill from sockaddr_in6 */
-                    accepted_address->from_sockaddr_in6(&accepted);
+                    /* construct from the out param of ::accept */
+                    auto accepted_address = std::make_unique<ipv6::address>(&accepted);
 
                     return std::make_pair(std::move(accepted_socket), std::move(accepted_address));
                 }
@@ -665,7 +712,7 @@ namespace net
                     }
                 }
 
-                void listen(int backlog = sizes::listen_backlog)
+                void listen(int backlog = 16) /* 16 is arbitrary */
                 {
                     if (::listen(m_fd, backlog) == -1)
                         throw error::make_syserr(errno, "listen");
