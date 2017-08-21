@@ -177,14 +177,14 @@ namespace net
             /**< Alias/Contraint for limiting socket API structs without
              * creating C++ base classes.
              */
-            template<typename T,
-                        class = typename std::enable_if<
-                                            ipv4::type_traits::is_ipv4_struct<
-                                                    typename std::remove_cv<
-                                                        typename std::remove_pointer<T>::type
-                                                        >::type
-                                                    >::value
-                                            >::type>
+            template<class T,
+                     class Dummy = typename std::enable_if<
+                                         ipv4::type_traits::is_ipv4_struct<
+                                                 typename std::remove_cv<
+                                                     typename std::remove_pointer<T>::type
+                                                     >::type
+                                                 >::value
+                                         >::type>
             using ipv4_struct = T;
 
             /**
@@ -431,69 +431,76 @@ namespace net
                         throw error::make_syserr(errno, "sendto");
                 }
 
-                void send_multiple(std::vector<Buffer const *> & buffers, ipv4::address const & to, flags_type flags = 0)
-                {
-                    struct msghdr msg = {};
-                    std::memset(&msg, 0, sizeof(struct msghdr));
-
-                    /* since sendmsg ultimately calls sendto, we have to send sockaddr
-                     * as arg to msghdr.
-                     *
-                     * Note that we HOPE this cast is safe since sendto/sendmsg should not be
-                     * modifying their dest address.
-                     */
-                    msg.msg_name = (void *)to.cast_to_const_sockaddr();
-                    msg.msg_namelen = sizeof(struct sockaddr);
-                    msg.msg_iovlen = buffers.size();
-
-                    /* man page says "user allocated" */
-                    msg.msg_iov = reinterpret_cast<struct iovec *>(std::calloc(buffers.size(), sizeof(struct iovec)));
-
-                    for (std::size_t i = 0; i < buffers.size(); ++i)
+                template<class T, class = typename std::pointer_traits<T>::pointer>
+                    void send_multiple(std::vector<T> const & buffers, ipv4::address const & to, flags_type flags = 0)
                     {
-                        msg.msg_iov[i].iov_base = buffers[i]->get_data_void();
-                        msg.msg_iov[i].iov_len = static_cast<int>(buffers[i]->get_size());
+                        static_assert(std::is_base_of<typename std::pointer_traits<T>::element_type, net::Buffer>::value, "T must be derived from net::Buffer");
+
+                        struct msghdr msg = {};
+                        std::memset(&msg, 0, sizeof(struct msghdr));
+
+                        /* since sendmsg ultimately calls sendto, we have to send sockaddr
+                         * as arg to msghdr.
+                         *
+                         * Note that we HOPE this cast is safe since sendto/sendmsg should not be
+                         * modifying their dest address.
+                         */
+                        auto const * d = to.cast_to_const_sockaddr();
+                        msg.msg_name = const_cast<sockaddr *>(d);
+                        msg.msg_namelen = sizeof(struct sockaddr);
+                        msg.msg_iovlen = buffers.size();
+
+                        /* man page says "user allocated" */
+                        msg.msg_iov = reinterpret_cast<struct iovec *>(std::calloc(buffers.size(), sizeof(struct iovec)));
+
+                        for (std::size_t i = 0; i < buffers.size(); ++i)
+                        {
+                            msg.msg_iov[i].iov_base = buffers[i]->get_data_void();
+                            msg.msg_iov[i].iov_len = static_cast<int>(buffers[i]->get_size());
+                        }
+
+                        auto r = ::sendmsg(m_fd, &msg, flags);
+
+                        std::free(msg.msg_iov);
+
+                        if (r == -1) {
+                            throw error::make_syserr(errno, "sendmsg");
+                        }
                     }
 
-                    auto r = ::sendmsg(m_fd, &msg, flags);
-
-                    std::free(msg.msg_iov);
-
-                    if (r == -1) {
-                        throw error::make_syserr(errno, "sendmsg");
-                    }
-                }
-
-                void recv_multiple(std::vector<Buffer *> & buffers, ipv4::address * from, flags_type flags = 0)
-                {
-                    struct msghdr msg;
-
-                    std::memset(&msg, 0, sizeof(struct msghdr));
-
-                    msg.msg_name = from ? from->cast_to_sockaddr_storage() : nullptr;
-                    msg.msg_namelen = from ? sizeof(struct sockaddr_storage) : 0;
-
-                    msg.msg_iov = reinterpret_cast<struct iovec *>(std::calloc(buffers.size(), sizeof(struct iovec)));
-                    msg.msg_iovlen = buffers.size();
-
-                    for (decltype(msg.msg_iovlen) i = 0; i < msg.msg_iovlen; ++i)
+                template<class T, class = typename std::pointer_traits<T>::pointer>
+                    void recv_multiple(std::vector<T> & buffers, ipv4::address * from, flags_type flags = 0)
                     {
-                        msg.msg_iov[i].iov_base = buffers[i]->get_data_void();
-                        msg.msg_iov[i].iov_len = static_cast<int>(buffers[i]->get_size());
+                        static_assert(std::is_base_of<typename std::pointer_traits<T>::element_type, net::Buffer>::value, "T must be derived from net::Buffer");
+
+                        struct msghdr msg;
+
+                        std::memset(&msg, 0, sizeof(struct msghdr));
+
+                        msg.msg_name = from ? from->cast_to_sockaddr_storage() : nullptr;
+                        msg.msg_namelen = from ? sizeof(struct sockaddr_storage) : 0;
+
+                        msg.msg_iov = reinterpret_cast<struct iovec *>(std::calloc(buffers.size(), sizeof(struct iovec)));
+                        msg.msg_iovlen = buffers.size();
+
+                        for (decltype(msg.msg_iovlen) i = 0; i < msg.msg_iovlen; ++i)
+                        {
+                            msg.msg_iov[i].iov_base = buffers[i]->get_data_void();
+                            msg.msg_iov[i].iov_len = static_cast<int>(buffers[i]->get_size());
+                        }
+
+                        auto r = ::recvmsg(m_fd, &msg, flags);
+
+                        std::free(msg.msg_iov);
+
+                        if (r == 1) {
+                            throw error::make_syserr(errno, "recvmsg");
+                        }
+
+                        if (from) {
+                            from->from_sockaddr(from->cast_to_sockaddr());
+                        }
                     }
-
-                    auto r = ::recvmsg(m_fd, &msg, flags);
-
-                    std::free(msg.msg_iov);
-
-                    if (r == 1) {
-                        throw error::make_syserr(errno, "recvmsg");
-                    }
-
-                    if (from) {
-                        from->from_sockaddr(from->cast_to_sockaddr());
-                    }
-                }
             };
 
         } /* end namespace ipv4 */
@@ -511,8 +518,8 @@ namespace net
             /**< Alias/Contraint for limiting socket API structs without
              * creating C++ base classes.
              */
-            template<typename T,
-                        class = typename std::enable_if<
+            template<class T,
+                     class Dummy = typename std::enable_if<
                                             ipv6::type_traits::is_ipv6_struct<
                                                     typename std::remove_cv<
                                                         typename std::remove_pointer<T>::type
@@ -762,69 +769,76 @@ namespace net
                         throw error::make_syserr(errno, "sendto");
                 }
 
-                void send_multiple(std::vector<Buffer const *> & buffers, ipv6::address const & to, flags_type flags = 0)
-                {
-                    struct msghdr msg = {};
-                    std::memset(&msg, 0, sizeof(struct msghdr));
-
-                    /* since sendmsg ultimately calls sendto, we have to send sockaddr
-                     * as arg to msghdr.
-                     *
-                     * Note that we HOPE this cast is safe since sendto/sendmsg should not be
-                     * modifying their dest address.
-                     */
-                    msg.msg_name = (void *)to.cast_to_const_sockaddr();
-                    msg.msg_namelen = sizeof(struct sockaddr_in6);
-                    msg.msg_iovlen = buffers.size();
-
-                    /* man page says "user allocated" */
-                    msg.msg_iov = reinterpret_cast<struct iovec *>(std::calloc(buffers.size(), sizeof(struct iovec)));
-
-                    for (std::size_t i = 0; i < buffers.size(); ++i)
+                template<class T, class = typename std::pointer_traits<T>::pointer>
+                    void send_multiple(std::vector<T> const & buffers, ipv6::address const & to, flags_type flags = 0)
                     {
-                        msg.msg_iov[i].iov_base = buffers[i]->get_data_void();
-                        msg.msg_iov[i].iov_len = static_cast<int>(buffers[i]->get_size());
+                        static_assert(std::is_base_of<typename std::pointer_traits<T>::element_type, net::Buffer>::value, "T must be derived from net::Buffer");
+
+                        struct msghdr msg = {};
+                        std::memset(&msg, 0, sizeof(struct msghdr));
+
+                        /* since sendmsg ultimately calls sendto, we have to send sockaddr
+                         * as arg to msghdr.
+                         *
+                         * Note that we HOPE this cast is safe since sendto/sendmsg should not be
+                         * modifying their dest address.
+                         */
+                        auto const * d = to.cast_to_const_sockaddr();
+                        msg.msg_name = const_cast<sockaddr *>(d);
+                        msg.msg_namelen = sizeof(struct sockaddr_in6);
+                        msg.msg_iovlen = buffers.size();
+
+                        /* man page says "user allocated" */
+                        msg.msg_iov = static_cast<struct iovec *>(std::calloc(buffers.size(), sizeof(struct iovec)));
+
+                        for (std::size_t i = 0; i < buffers.size(); ++i)
+                        {
+                            msg.msg_iov[i].iov_base = buffers[i]->get_data_void();
+                            msg.msg_iov[i].iov_len = static_cast<int>(buffers[i]->get_size());
+                        }
+
+                        auto r = ::sendmsg(m_fd, &msg, flags);
+
+                        std::free(msg.msg_iov);
+
+                        if (r == -1) {
+                            throw error::make_syserr(errno, "sendmsg");
+                        }
                     }
 
-                    auto r = ::sendmsg(m_fd, &msg, flags);
-
-                    std::free(msg.msg_iov);
-
-                    if (r == -1) {
-                        throw error::make_syserr(errno, "sendmsg");
-                    }
-                }
-
-                void recv_multiple(std::vector<Buffer *> & buffers, ipv6::address * from, flags_type flags = 0)
-                {
-                    struct msghdr msg;
-
-                    std::memset(&msg, 0, sizeof(struct msghdr));
-
-                    msg.msg_name = from ? from->cast_to_sockaddr_storage() : nullptr;
-                    msg.msg_namelen = from ? sizeof(struct sockaddr_storage) : 0;
-
-                    msg.msg_iov = reinterpret_cast<struct iovec *>(std::calloc(buffers.size(), sizeof(struct iovec)));
-                    msg.msg_iovlen = buffers.size();
-
-                    for (decltype(msg.msg_iovlen) i = 0; i < msg.msg_iovlen; ++i)
+                template<class T, class = typename std::pointer_traits<T>::pointer>
+                    void recv_multiple(std::vector<T> & buffers, ipv6::address * from, flags_type flags = 0)
                     {
-                        msg.msg_iov[i].iov_base = buffers[i]->get_data_void();
-                        msg.msg_iov[i].iov_len = static_cast<int>(buffers[i]->get_size());
+                        static_assert(std::is_base_of<typename std::pointer_traits<T>::element_type, net::Buffer>::value, "T must be derived from net::Buffer");
+
+                        struct msghdr msg;
+
+                        std::memset(&msg, 0, sizeof(struct msghdr));
+
+                        msg.msg_name = from ? from->cast_to_sockaddr_storage() : nullptr;
+                        msg.msg_namelen = from ? sizeof(struct sockaddr_storage) : 0;
+
+                        msg.msg_iov = static_cast<struct iovec *>(std::calloc(buffers.size(), sizeof(struct iovec)));
+                        msg.msg_iovlen = buffers.size();
+
+                        for (decltype(msg.msg_iovlen) i = 0; i < msg.msg_iovlen; ++i)
+                        {
+                            msg.msg_iov[i].iov_base = buffers[i]->get_data_void();
+                            msg.msg_iov[i].iov_len = static_cast<int>(buffers[i]->get_size());
+                        }
+
+                        auto r = ::recvmsg(m_fd, &msg, flags);
+
+                        std::free(msg.msg_iov);
+
+                        if (r == 1) {
+                            throw error::make_syserr(errno, "recvmsg");
+                        }
+
+                        if (from) {
+                            from->from_sockaddr_in6(from->cast_to_sockaddr_in6());
+                        }
                     }
-
-                    auto r = ::recvmsg(m_fd, &msg, flags);
-
-                    std::free(msg.msg_iov);
-
-                    if (r == 1) {
-                        throw error::make_syserr(errno, "recvmsg");
-                    }
-
-                    if (from) {
-                        from->from_sockaddr_in6(from->cast_to_sockaddr_in6());
-                    }
-                }
             };
 
         } /* end namespace ipv6 */

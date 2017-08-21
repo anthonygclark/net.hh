@@ -78,16 +78,17 @@ int main(void)
     std::cout << "----------------\n";
 
     std::thread recvmsg_thread{[] {
-        auto b1 = net::make_buffer<char>(188);
-        auto b2 = net::make_buffer<char>(188);
-        auto b3 = net::make_buffer<char>(188);
-        auto b4 = net::make_buffer<char>(1000);
-
         auto s = net::ipv4::socket(SOCK_DGRAM);
         auto a = net::ipv4::address(net::ipv4::address::ANY, 9999);
 
         net::ipv4::address who{};
-        std::vector<net::Buffer *> buffers{b1.get(), b2.get(), b3.get(),b4.get()};
+
+        std::vector<std::unique_ptr<net::Buffer>> buffers;
+
+        buffers.emplace_back(net::make_buffer<char>(188));
+        buffers.emplace_back(net::make_buffer<char>(188));
+        buffers.emplace_back(net::make_buffer<char>(188));
+        buffers.emplace_back(net::make_buffer<char>(1000));
 
         s.bind(a);
 
@@ -107,15 +108,16 @@ int main(void)
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     std::thread sendmsg_thread{[] {
-        auto b1 = net::make_buffer<char>(188);
-        auto b2 = net::make_buffer<char>(188);
-        auto b3 = net::make_buffer<char>(188);
-        auto b4 = net::make_buffer<char>(1000);
-
         auto s = net::ipv4::socket(SOCK_DGRAM);
         auto a = net::ipv4::address(net::ipv4::address::ANY, 9999);
 
-        std::vector<net::Buffer const *> buffers{b1.get(), b2.get(), b3.get(),b4.get()};
+        std::vector<std::unique_ptr<net::Buffer>> buffers;
+
+        buffers.emplace_back(net::make_buffer<char>(188));
+        buffers.emplace_back(net::make_buffer<char>(188));
+        buffers.emplace_back(net::make_buffer<char>(188));
+        buffers.emplace_back(net::make_buffer<char>(1000));
+
         s.send_multiple(buffers, a);
 
         std::cout << "SENDMSG1: Sending 1564 bytes via send_multiple...\n";
