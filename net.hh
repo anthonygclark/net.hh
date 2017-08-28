@@ -25,18 +25,23 @@ namespace net
 {
     inline namespace v1
     {
-        struct Buffer final
+        /**
+         * @brief Very thin wrapper around a void* used for network I/O.
+         * @details See net_buffer.hh for type-safe implementation
+         */
+        class Buffer final
         {
+        private:
             void * m_ptr = nullptr;
             std::size_t m_size = 0;
 
-            Buffer(void * ptr, std::size_t n) :
-                m_ptr(ptr), m_size(n)
-            { }
-
-            void * get_data_void() const { return m_ptr; }
+        public:
+            Buffer(void * ptr, std::size_t n) : m_ptr(ptr), m_size(n) { }
+            void * get_data_void() { return m_ptr; }
+            void const * get_data_void() const { return m_ptr; }
             std::size_t get_size() const { return m_size; }
         };
+
     } /* end namespace v1 */
 } /* end namespace net */
 #endif
@@ -105,8 +110,10 @@ namespace net
             };
 
         /**
-         * @brief
-         * @tparam D
+         * @brief Address Base.
+         * @details This remains as a CRTP base incase it's easier to implement CRTP dispatching
+         *          later on.
+         * @tparam D CRTP derived.
          */
         template<typename D>
             class address
@@ -148,19 +155,15 @@ namespace net
                  */
                 void set_port(decltype(m_port) const & port) { m_port = port; }
 
-#define CAST_TO_CONST(x) x const * cast_to_const_ ## x () const { return reinterpret_cast<x const *>(&m_address); }
-                CAST_TO_CONST(sockaddr)
-                CAST_TO_CONST(sockaddr_in)
-                CAST_TO_CONST(sockaddr_in6)
-                CAST_TO_CONST(sockaddr_storage)
-#undef CAST_TO_CONST
+                struct sockaddr * cast_to_sockaddr() { return reinterpret_cast<struct sockaddr *>(&m_address); }
+                struct sockaddr_in * cast_to_sockaddr_in() { return reinterpret_cast<struct sockaddr_in *>(&m_address); }
+                struct sockaddr_in6 * cast_to_sockaddr_in6() { return reinterpret_cast<struct sockaddr_in6 *>(&m_address); }
+                struct sockaddr_storage * cast_to_sockaddr_storage() { return &m_address; }
 
-#define CAST_TO(x) x * cast_to_ ## x () { return reinterpret_cast<x *>(&m_address); }
-                CAST_TO(sockaddr)
-                CAST_TO(sockaddr_in)
-                CAST_TO(sockaddr_in6)
-                CAST_TO(sockaddr_storage)
-#undef CAST_TO
+                struct sockaddr const * cast_to_sockaddr() const { return reinterpret_cast<struct sockaddr const *>(&m_address); }
+                struct sockaddr_in const * cast_to_sockaddr_in() const { return reinterpret_cast<struct sockaddr_in const *>(&m_address); }
+                struct sockaddr_in6 const * cast_to_sockaddr_in6() const { return reinterpret_cast<struct sockaddr_in6 const *>(&m_address); }
+                struct sockaddr_storage const * cast_to_sockaddr_storage() const { return &m_address; }
             };
 
         namespace ipv4
@@ -242,7 +245,7 @@ namespace net
                  * @param addr Pre-filled address
                  */
                 template<typename T>
-                    address(ipv4_struct<T> && s)
+                    explicit address(ipv4_struct<T> && s)
                     {
                         static_assert(std::is_pointer<T>::value, "T must be a pointer");
 
@@ -265,7 +268,7 @@ namespace net
                     /* storage for the ascii ip */
                     char b[INET_ADDRSTRLEN] = {0};
 
-                    auto * in = cast_to_const_sockaddr_in();
+                    auto * in = cast_to_sockaddr_in();
 
                     /* parse the IP from src */
                     auto r = ::inet_ntop(m_family, &(in->sin_addr),
@@ -374,7 +377,7 @@ namespace net
                         (void)::setsockopt(m_fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(int));
                     }
 
-                    if(::bind(m_fd, addr.cast_to_const_sockaddr(),
+                    if(::bind(m_fd, addr.cast_to_sockaddr(),
                               sizeof(struct sockaddr_in)) == -1)
                     {
                         throw error::make_syserr(errno, "bind");
@@ -389,7 +392,7 @@ namespace net
 
                 void connect(ipv4::address const & addr)
                 {
-                    if (::connect(m_fd, addr.cast_to_const_sockaddr(), sizeof(struct sockaddr_in)) == -1) {
+                    if (::connect(m_fd, addr.cast_to_sockaddr(), sizeof(struct sockaddr_in)) == -1) {
                         throw error::make_syserr(errno, "connect");
                     }
                 }
@@ -425,12 +428,21 @@ namespace net
                 void sendto(Buffer const & buffer, ipv4::address const & to, flags_type flags = 0)
                 {
                     auto r = ::sendto(m_fd, buffer.get_data_void(), buffer.get_size(), flags,
-                                      to.cast_to_const_sockaddr(), sizeof(struct sockaddr));
+                                      to.cast_to_sockaddr(), sizeof(struct sockaddr));
 
                     if (r == -1)
                         throw error::make_syserr(errno, "sendto");
                 }
 
+                /**
+                 * @brief Sends multiple buffers to an address
+                 * @tparam T Buffer type (must be derived from net::Buffer)
+                 * @tparam class Dummy type for detection of pointer-like objects. T can be T* or smart_pointer<T>.
+                 *      Or, any pointer type that supplies std::pointer_traits
+                 * @param buffers The list of buffers to send
+                 * @param to The address to send to
+                 * @param flags Implementation flags, see sendmsg(2)
+                 */
                 template<class T, class = typename std::pointer_traits<T>::pointer>
                     void send_multiple(std::vector<T> const & buffers, ipv4::address const & to, flags_type flags = 0)
                     {
@@ -445,7 +457,7 @@ namespace net
                          * Note that we HOPE this cast is safe since sendto/sendmsg should not be
                          * modifying their dest address.
                          */
-                        auto const * d = to.cast_to_const_sockaddr();
+                        auto const * d = to.cast_to_sockaddr();
                         msg.msg_name = const_cast<sockaddr *>(d);
                         msg.msg_namelen = sizeof(struct sockaddr);
                         msg.msg_iovlen = buffers.size();
@@ -468,8 +480,17 @@ namespace net
                         }
                     }
 
+                /**
+                 * @brief Received multiple buffers from a socket
+                 * @tparam T Buffer type (must be derived from net::Buffer)
+                 * @tparam class Dummy type for detection of pointer-like objects. T can be T* or smart_pointer<T>.
+                 *      Or, any pointer type that supplies std::pointer_traits
+                 * @param buffers The list of buffers to receive
+                 * @param from Source address, optional, defaulted to nullptr
+                 * @param flags Implementation flags, see recvmsg(2)
+                 */
                 template<class T, class = typename std::pointer_traits<T>::pointer>
-                    void recv_multiple(std::vector<T> & buffers, ipv4::address * from, flags_type flags = 0)
+                    void recv_multiple(std::vector<T> & buffers, ipv4::address * from = nullptr, flags_type flags = 0)
                     {
                         static_assert(std::is_base_of<typename std::pointer_traits<T>::element_type, net::Buffer>::value, "T must be derived from net::Buffer");
 
@@ -502,7 +523,6 @@ namespace net
                         }
                     }
             };
-
         } /* end namespace ipv4 */
 
         namespace ipv6
@@ -541,7 +561,7 @@ namespace net
 
             public:
                 /**< Represents ANY IPv6 address, aka wildcard.
-                 * TODO this is a standin value for in6addr_any.
+                 * TODO This is a standin value for in6addr_any.
                  */
                 constexpr static const char * ANY_6 = ":::";
 
@@ -586,11 +606,11 @@ namespace net
                 }
 
                 /**
-                 * @brief constructor
+                 * @brief Constructor
                  * @param addr Pre-filled address
                  */
                 template<typename T>
-                    address(ipv6_struct<T> && s)
+                    explicit address(ipv6_struct<T> && s)
                     {
                         static_assert(std::is_pointer<T>::value, "T must be a pointer");
 
@@ -613,7 +633,7 @@ namespace net
                     /* storage for the ascii ip */
                     char b[INET6_ADDRSTRLEN] = {0};
 
-                    auto * in = cast_to_const_sockaddr_in6();
+                    auto * in = cast_to_sockaddr_in6();
 
                     /* parse the IP from src */
                     auto r = ::inet_ntop(m_family, &(in->sin6_addr),
@@ -712,7 +732,7 @@ namespace net
                         (void)::setsockopt(m_fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(int));
                     }
 
-                    if(::bind(m_fd, addr.cast_to_const_sockaddr(),
+                    if(::bind(m_fd, addr.cast_to_sockaddr(),
                               sizeof(struct sockaddr_in6)) == -1)
                     {
                         throw error::make_syserr(errno, "bind");
@@ -727,7 +747,7 @@ namespace net
 
                 void connect(ipv6::address const & addr)
                 {
-                    if (::connect(m_fd, addr.cast_to_const_sockaddr(), sizeof(struct sockaddr_in6)) == -1) {
+                    if (::connect(m_fd, addr.cast_to_sockaddr(), sizeof(struct sockaddr_in6)) == -1) {
                         throw error::make_syserr(errno, "connect");
                     }
                 }
@@ -763,7 +783,7 @@ namespace net
                 void sendto(Buffer const & buffer, ipv6::address const & to, flags_type flags = 0)
                 {
                     auto r = ::sendto(m_fd, buffer.get_data_void(), buffer.get_size(), flags,
-                                      to.cast_to_const_sockaddr(), sizeof(struct sockaddr_in6));
+                                      to.cast_to_sockaddr(), sizeof(struct sockaddr_in6));
 
                     if (r == -1)
                         throw error::make_syserr(errno, "sendto");
@@ -783,7 +803,7 @@ namespace net
                          * Note that we HOPE this cast is safe since sendto/sendmsg should not be
                          * modifying their dest address.
                          */
-                        auto const * d = to.cast_to_const_sockaddr();
+                        auto const * d = to.cast_to_sockaddr();
                         msg.msg_name = const_cast<sockaddr *>(d);
                         msg.msg_namelen = sizeof(struct sockaddr_in6);
                         msg.msg_iovlen = buffers.size();
@@ -807,7 +827,7 @@ namespace net
                     }
 
                 template<class T, class = typename std::pointer_traits<T>::pointer>
-                    void recv_multiple(std::vector<T> & buffers, ipv6::address * from, flags_type flags = 0)
+                    void recv_multiple(std::vector<T> & buffers, ipv6::address * from = nullptr, flags_type flags = 0)
                     {
                         static_assert(std::is_base_of<typename std::pointer_traits<T>::element_type, net::Buffer>::value, "T must be derived from net::Buffer");
 

@@ -85,10 +85,10 @@ int main(void)
 
         std::vector<std::unique_ptr<net::Buffer>> buffers;
 
-        buffers.emplace_back(net::make_buffer<char>(188));
-        buffers.emplace_back(net::make_buffer<char>(188));
-        buffers.emplace_back(net::make_buffer<char>(188));
-        buffers.emplace_back(net::make_buffer<char>(1000));
+        buffers.emplace_back(net::make_buffer(188));
+        buffers.emplace_back(net::make_buffer(188));
+        buffers.emplace_back(net::make_buffer(188));
+        buffers.emplace_back(net::make_buffer(1000));
 
         s.bind(a);
 
@@ -113,10 +113,10 @@ int main(void)
 
         std::vector<std::unique_ptr<net::Buffer>> buffers;
 
-        buffers.emplace_back(net::make_buffer<char>(188));
-        buffers.emplace_back(net::make_buffer<char>(188));
-        buffers.emplace_back(net::make_buffer<char>(188));
-        buffers.emplace_back(net::make_buffer<char>(1000));
+        buffers.emplace_back(net::make_buffer(188));
+        buffers.emplace_back(net::make_buffer(188));
+        buffers.emplace_back(net::make_buffer(188));
+        buffers.emplace_back(net::make_buffer(1000));
 
         s.send_multiple(buffers, a);
 
